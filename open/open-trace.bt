@@ -1,0 +1,93 @@
+#!/usr/bin/bpftrace
+
+#include <linux/fs.h>
+#include <linux/namei.h>
+#include <linux/path.h>
+#include <linux/dcache.h>
+
+struct nameidata {
+	struct path	path;
+	struct qstr	last;
+	struct path	root;
+	struct inode	*inode; /* path.dentry.d_inode */
+	unsigned int	flags;
+	unsigned	seq, m_seq, r_seq;
+	int		last_type;
+	unsigned	depth;
+	int		total_link_count;
+	struct saved {
+		struct path link;
+		struct delayed_call done;
+		const char *name;
+		unsigned seq;
+	} *stack, internal[2];
+	struct filename	*name;
+	struct nameidata *saved;
+	unsigned	root_seq;
+	int		dfd;
+	kuid_t		dir_uid;
+	umode_t		dir_mode;
+};
+
+enum {WALK_TRAILING = 1, WALK_MORE = 2, WALK_NOFOLLOW = 4};
+
+BEGIN 
+{
+	printf("Tracing do_filp_open calls from %d\n", $1);
+}
+
+kprobe:do_filp_open /pid == $1/ 
+{
+	$filename = str(((struct filename *)arg1)->uptr);
+	printf("do_filp_open(dfd=%d, filename->name=%s)\n", arg0, $filename);
+}
+
+kprobe:link_path_walk.part.0 /pid == $1/
+{
+	$filename = str(arg0);
+	printf("link_path_walk(filename=%s)\n", $filename);
+}
+
+kprobe:walk_component /pid == $1/
+{
+	$filename = str(((struct nameidata *)arg0)->path.dentry->d_name.name);
+	$arg = "DONE";
+	if (arg1 == WALK_TRAILING) {
+		$arg = "WALK_TRAILING";
+	}
+	if (arg1 == WALK_MORE) {
+		$arg = "WALK_MORE";
+	}
+	if (arg1 == WALK_NOFOLLOW) {
+		$arg = "WALK_NOFOLLOW";
+	}
+	printf("walk_component(nd->path=%s, flags=%s)\n", $filename, $arg);
+}
+
+kretprobe:lookup_fast /pid == $1/
+{
+	if (retval) {
+		$filename = str(((struct dentry *)retval)->d_name.name);
+		printf("dcache hit: lookup_fast on %s\n", $filename);
+	}
+}
+
+kretprobe:__lookup_slow /pid == $1/
+{
+	if (retval) {
+		$filename = str(((struct dentry *)retval)->d_name.name);
+		printf("dcache miss: lookup_slow on %s\n", $filename);
+	}
+}
+
+kprobe:ext4_lookup /pid == $1/
+{
+	$filename = str(((struct dentry *)arg1)->d_name.name);
+	printf("dcache_miss: ext4_lookup called on %s\n", $filename);
+}
+
+kprobe:ext4_file_open /pid ==$1/
+{
+	$file = str(((struct file *)arg1)->f_path.dentry->d_name.name);
+	printf("ext4_file_open called on %s\n", $file);
+}
