@@ -1,0 +1,39 @@
+#!/usr/bin/bpftrace
+
+#include <linux/fs.h>
+#include <linux/path.h>
+#include <linux/dcache.h>
+		
+BEGIN
+{
+	printf("Tracing read calls from read to file %s...\n", str($1));
+}
+
+kprobe:vfs_read /comm == "read"/
+{
+	$file = str(((struct file *)arg0)->f_path.dentry->d_name.name);
+	if ($file == str($1)) {
+		printf("vfs_read(file=%s)\n", $file);
+		printf("vfs_read: %s\n", kstack());
+	}
+}
+
+/*
+Security, including LSM hooks.
+*/
+
+kprobe:rw_verify_area /comm == "read"/
+{
+	$file = str(((struct file *)arg1)->f_path.dentry->d_name.name);
+	if ($file == str($1)) {
+		printf("rw_verify_area(read_write=%d, file=%s)\n", arg0, $file);
+	}
+}
+
+kprobe:security_file_permission /comm == "read"/
+{
+	$file = str(((struct file *)arg0)->f_path.dentry->d_name.name);
+	if ($file == str($1)) {
+		printf("security_file_permission(file=%s, read_write=%d)\n", $file, arg1);
+	}
+}

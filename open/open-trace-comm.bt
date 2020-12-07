@@ -33,22 +33,22 @@ enum {WALK_TRAILING = 1, WALK_MORE = 2, WALK_NOFOLLOW = 4};
 
 BEGIN 
 {
-	printf("Tracing do_filp_open calls from %d\n", $1);
+	printf("Tracing do_filp_open calls from %s\n", str($1));
 }
 
-kprobe:do_filp_open /pid == $1/ 
+kprobe:do_filp_open /comm == str($1)/ 
 {
 	$filename = str(((struct filename *)arg1)->uptr);
 	printf("do_filp_open(dfd=%d, filename->name=%s)\n", arg0, $filename);
 }
 
-kprobe:link_path_walk.part.0 /pid == $1/
+kprobe:link_path_walk.part.0 /comm == str($1)/
 {
 	$filename = str(arg0);
 	printf("link_path_walk(filename=%s)\n", $filename);
 }
 
-kprobe:walk_component /pid == $1/
+kprobe:walk_component /comm == str($1)/
 {
 	$filename = str(((struct nameidata *)arg0)->path.dentry->d_name.name);
 	$arg = "DONE";
@@ -64,7 +64,7 @@ kprobe:walk_component /pid == $1/
 	printf("walk_component(nd->path=%s, flags=%s)\n", $filename, $arg);
 }
 
-kretprobe:lookup_fast /pid == $1/
+kretprobe:lookup_fast /comm == str($1)/
 {
 	if (retval) {
 		$filename = str(((struct dentry *)retval)->d_name.name);
@@ -72,7 +72,7 @@ kretprobe:lookup_fast /pid == $1/
 	}
 }
 
-kretprobe:__lookup_slow /pid == $1/
+kretprobe:__lookup_slow /comm == str($1)/
 {
 	if (retval) {
 		$filename = str(((struct dentry *)retval)->d_name.name);
@@ -80,25 +80,30 @@ kretprobe:__lookup_slow /pid == $1/
 	}
 }
 
-kretprobe:do_open /pid ==$1/
+kretprobe:do_open /comm == str($1)/
 {
 	printf("do_open() -> %d\n", retval);
 }
 
 
-kprobe:ext4_lookup /pid == $1/
+kprobe:ext4_lookup /comm == str($1)/
 {
 	$filename = str(((struct dentry *)arg1)->d_name.name);
 	printf("dcache_miss: ext4_lookup called on %s\n", $filename);
 }
 
-kprobe:ext4_file_open /pid ==$1/
+kprobe:ext4_file_open /comm == str($1)/
 {
 	$file = str(((struct file *)arg1)->f_path.dentry->d_name.name);
 	printf("ext4_file_open called on %s\n", $file);
 }
 
-kretprobe:ext4_file_open /pid ==$1/
+kretprobe:ext4_file_open /comm == str($1)/
 {
 	printf("ext4_file_open() -> %d\n", retval);	
+}
+
+kretprobe:generic_permission /comm == str($1)/
+{
+	printf("generic_permission() -> %d\n", retval);
 }

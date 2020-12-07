@@ -1,0 +1,36 @@
+#!/usr/bin/bpftrace
+
+#include <linux/fs.h>
+#include <linux/path.h>
+#include <linux/dcache.h>
+		
+BEGIN
+{
+	printf("Tracing read calls from %d...\n", $1);
+}
+
+/*
+Entrypoint to the kernel.
+*/
+
+kprobe:__x64_sys_read /pid == $1/
+{
+	printf("ksys_read(fd=%d): %s\n", arg0, kstack());
+}
+
+kprobe:vfs_read /pid == $1/
+{
+	$file = str(((struct file *)arg0)->f_path.dentry->d_name.name);
+	printf("vfs_read(file=%s)\n", $file);
+	printf("vfs_read: %s\n", kstack());
+}
+
+/*
+Security, including LSM hooks.
+*/
+
+kprobe:rw_verify_area /pid ==$1/
+{
+	$file = str(((struct file *)arg1)->f_path.dentry->d_name.name);
+	printf("rw_verify_area(read_write=%d, file=%s)\n", arg0, $file);
+}
